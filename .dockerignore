@@ -1,0 +1,25 @@
+# Ignore model cache and downloads
+models/
+*.pyc
+__pycache__/
+.git/
+.gitignore
+
+# Docker ignore
+.dockerignore
+Dockerfile*
+docker-compose*
+README.md
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
