@@ -190,7 +190,7 @@ class VLLMLauncher:
                 
                 # Individual instance upstream
                 upstreams.append(f"""upstream {instance_name} {{
-    server localhost:{port};
+    server vllm:{port};
 }}""")
                 
                 # Individual instance location
@@ -206,10 +206,11 @@ class VLLMLauncher:
         proxy_connect_timeout 75s;
     }}""")
                 
-                backends.append(f"        server localhost:{port};")
+                backends.append(f"        server vllm:{port};")
             
-            # Load balancer upstream
+            # Load balancer upstream with least_conn for better load balancing
             upstreams.append(f"""upstream vllm_backends {{
+    least_conn;
 {chr(10).join(backends)}
 }}""")
             
@@ -228,7 +229,7 @@ class VLLMLauncher:
         else:  # tensor_parallel
             port = self.base_port
             upstreams = [f"""upstream vllm_backends {{
-    server localhost:{port};
+    server vllm:{port};
 }}"""]
             
             locations = [f"""    # Single instance with tensor parallelism
@@ -251,7 +252,7 @@ http {{
 
     server {{
         listen 80;
-        server_name localhost;
+        server_name vllm;
 
 {chr(10).join(locations)}
 
