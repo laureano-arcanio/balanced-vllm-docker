@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -47,33 +47,36 @@ RUN ln -sf /opt/pyenv/versions/3.12.0/bin/python3 /usr/bin/python
 RUN ln -sf /opt/pyenv/versions/3.12.0/bin/pip3 /usr/bin/pip3
 RUN ln -sf /opt/pyenv/versions/3.12.0/bin/pip3 /usr/bin/pip
 
-# Upgrade pip for Python 3.12
+# Upgrade pip
 RUN /opt/pyenv/versions/3.12.0/bin/python3 -m pip install --upgrade pip
 
 # Create initial virtual environments using pyenv Python
-RUN /opt/pyenv/versions/3.12.0/bin/python3 -m venv /opt/venv1
-RUN /opt/pyenv/versions/3.12.0/bin/python3 -m venv /opt/venv2
+RUN /opt/pyenv/versions/3.12.0/bin/python3 -m venv /opt/venv
 
-# Install PyTorch with CUDA support in the two venvs
-RUN /opt/venv1/bin/pip install --upgrade pip && \
-    /opt/venv1/bin/pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Install PyTorch with CUDA support
+RUN /opt/venv/bin/pip install --upgrade pip && \
+    /opt/venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cu124
 
-RUN /opt/venv2/bin/pip install --upgrade pip && \
-    /opt/venv2/bin/pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-
-# Install vLLM and related dependencies in the two venvs
-RUN /opt/venv1/bin/pip install vllm[all] transformers accelerate datasets sentencepiece protobuf fastapi uvicorn
-RUN /opt/venv2/bin/pip install vllm[all] transformers accelerate datasets sentencepiece protobuf fastapi uvicorn
+# Install vLLM and related dependencies 
+RUN /opt/venv/bin/pip install vllm "transformers>=4.35.0" accelerate safetensors numpy pyyaml uvicorn fastapi
 
 # Create working directory
 WORKDIR /app
 
-# Expose ports for vLLM instances (8000-8010 range)
-EXPOSE 8000-8010
+# Expose ports for vLLM instances
+EXPOSE 8000 8001
+
 
 # Copy only the valid scripts for the two instances
-COPY start_vllm_instance1.sh /app/
-COPY start_vllm_instance2.sh /app/
+COPY scripts/start_vllm_instance1.sh /app/
+COPY scripts/start_vllm_instance2.sh /app/
+
+# For multiple GPU instances, its more performant to use separate vLLM instances (added 2 for simplicity)
+# When running on a single GPU, its more performant to use a single vLLM instance with tensor parallelism
+# --tensor-parallel-size 1
+RUN chmod +x /app/start_vllm_instance1.sh
+RUN chmod +x /app/start_vllm_instance2.sh
+
 
 # Default command (can be overridden)
 CMD ["bash"]

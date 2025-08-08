@@ -12,6 +12,7 @@ services:
       - ./models:/root/.cache/huggingface  # Cache models locally
     environment:
       - CUDA_VISIBLE_DEVICES=0
+      - HF_TOKEN=${HF_TOKEN}
     deploy:
       resources:
         reservations:
@@ -37,6 +38,7 @@ services:
       - ./models:/root/.cache/huggingface  # Cache models locally
     environment:
       - CUDA_VISIBLE_DEVICES=1
+      - HF_TOKEN=${HF_TOKEN}
     deploy:
       resources:
         reservations:
@@ -59,7 +61,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx.conf:/etc/nginx/nginx.conf
     depends_on:
       - vllm1
       - vllm2
