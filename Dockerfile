@@ -79,14 +79,11 @@ WORKDIR /app
 # Expose ports for vLLM instances (8000-8010 for dynamic instances)
 EXPOSE 8000-8010
 
-
 # Copy all scripts
 COPY scripts/ /app/scripts/
 
 # Make scripts executable
 RUN chmod +x /app/scripts/vllm_launcher.py
-RUN chmod +x /app/scripts/gpu_detection_test.py
-
 
 # Default command (can be overridden)
 CMD ["bash"]
