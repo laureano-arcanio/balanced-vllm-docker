@@ -1,24 +1,37 @@
 version: '3.8'
 
 services:
-  # vLLM Instance 1
-  vllm1:
-    build: .
-    container_name: vllm_instance1
-    command: /app/start_vllm_instance1.sh
+  # Dynamic vLLM Service
+  vllm:
+    build:
+      context: .
+      args:
+        VLLM_INSTALL_TYPE: ${VLLM_INSTALL_TYPE:-standard}
+    container_name: vllm_dynamic
+    command: python /app/scripts/vllm_launcher.py
     ports:
-      - "8000:8000"
+      # Expose ports 8000-8010 for multiple instances
+      - "8000-8010:8000-8010"
     volumes:
       - ./models:/root/.cache/huggingface  # Cache models locally
+      - nginx-config:/tmp                  # Share nginx config
     environment:
-      - CUDA_VISIBLE_DEVICES=0
       - HF_TOKEN=${HF_TOKEN}
+      - VLLM_MODEL=${VLLM_MODEL:-facebook/opt-125m}
+      - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-opt-125m}
+      - VLLM_STRATEGY=${VLLM_STRATEGY:-multi_instance}
+      - VLLM_GPU_COUNT=${VLLM_GPU_COUNT}
+      - VLLM_HOST=${VLLM_HOST:-0.0.0.0}
+      - VLLM_BASE_PORT=${VLLM_BASE_PORT:-8000}
+      - VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-2048}
+      - VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.80}
+      - VLLM_INSTALL_TYPE=${VLLM_INSTALL_TYPE:-standard}
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: all
               capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
@@ -26,51 +39,36 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s
 
-  # vLLM Instance 2
-  vllm2:
-    build: .
-    container_name: vllm_instance2
-    command: /app/start_vllm_instance2.sh
-    ports:
-      - "8001:8001"
-    volumes:
-      - ./models:/root/.cache/huggingface  # Cache models locally
-    environment:
-      - CUDA_VISIBLE_DEVICES=1
-      - HF_TOKEN=${HF_TOKEN}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # Nginx Reverse Proxy
+  # Dynamic Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
-    container_name: vllm_reverse_proxy
+    container_name: vllm_reverse_proxy_dynamic
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
+      - nginx-config:/etc/nginx/conf.d
     depends_on:
-      - vllm1
-      - vllm2
+      vllm:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    command: >
+      sh -c "
+        echo 'Waiting for nginx config to be generated...' &&
+        while [ ! -f /etc/nginx/conf.d/nginx.conf ]; do sleep 1; done &&
+        echo 'Config found, copying to main nginx config...' &&
+        cp /etc/nginx/conf.d/nginx.conf /etc/nginx/nginx.conf &&
+        echo 'Starting nginx...' &&
+        nginx -g 'daemon off;'
+      "
 
 volumes:
   models:
+  nginx-config:

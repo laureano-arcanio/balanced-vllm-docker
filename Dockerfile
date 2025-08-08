@@ -58,24 +58,34 @@ RUN /opt/venv/bin/pip install --upgrade pip && \
     /opt/venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cu124
 
 # Install vLLM and related dependencies 
-RUN /opt/venv/bin/pip install vllm "transformers>=4.35.0" accelerate safetensors numpy pyyaml uvicorn fastapi
+# Default to standard vLLM, can be overridden at build time
+ARG VLLM_INSTALL_TYPE=standard
+RUN if [ "$VLLM_INSTALL_TYPE" = "gptoss" ]; then \
+        echo "Installing GPT-OSS vLLM..." && \
+        /opt/venv/bin/pip install uv && \
+        /opt/venv/bin/uv pip install --pre vllm==0.10.1+gptoss \
+            --extra-index-url https://wheels.vllm.ai/gpt-oss/ \
+            --extra-index-url https://download.pytorch.org/whl/nightly/cu128 \
+            --index-strategy unsafe-best-match \
+            "transformers>=4.35.0" accelerate safetensors numpy pyyaml uvicorn fastapi; \
+    else \
+        echo "Installing standard vLLM..." && \
+        /opt/venv/bin/pip install vllm "transformers>=4.35.0" accelerate safetensors numpy pyyaml uvicorn fastapi; \
+    fi
 
 # Create working directory
 WORKDIR /app
 
-# Expose ports for vLLM instances
-EXPOSE 8000 8001
+# Expose ports for vLLM instances (8000-8010 for dynamic instances)
+EXPOSE 8000-8010
 
 
-# Copy only the valid scripts for the two instances
-COPY scripts/start_vllm_instance1.sh /app/
-COPY scripts/start_vllm_instance2.sh /app/
+# Copy all scripts
+COPY scripts/ /app/scripts/
 
-# For multiple GPU instances, its more performant to use separate vLLM instances (added 2 for simplicity)
-# When running on a single GPU, its more performant to use a single vLLM instance with tensor parallelism
-# --tensor-parallel-size 1
-RUN chmod +x /app/start_vllm_instance1.sh
-RUN chmod +x /app/start_vllm_instance2.sh
+# Make scripts executable
+RUN chmod +x /app/scripts/vllm_launcher.py
+RUN chmod +x /app/scripts/gpu_detection_test.py
 
 
 # Default command (can be overridden)

@@ -1,227 +1,421 @@
-# vLLM Docker Setup
+# Balanced vLLM Docker
 
-This Docker setup provides a reverse proxy to direct traffic to 2 different vLLM instances running on separate ports.
+A dynamic, GPU-aware vLLM deployment system that automatically detects your hardware and scales across multiple GPUs with intelligent load balancing.
 
-## Architecture
+## 🚀 Features
 
-- **vLLM Instance 1**: Runs on port 8000 with `microsoft/DialoGPT-medium` in `/opt/venv1`
-- **vLLM Instance 2**: Runs on port 8001 with `microsoft/DialoGPT-small` in `/opt/venv2`
-- **Nginx Reverse Proxy**: Routes traffic on port 80
+- **🎯 Automatic GPU Detection**: Detects all available NVIDIA GPUs using `nvidia-smi`
+- **⚖️ Intelligent Load Balancing**: Nginx automatically distributes requests across all instances
+- **🔧 Flexible Deployment Strategies**: 
+  - `multi_instance`: One vLLM instance per GPU (better for multiple users)
+  - `tensor_parallel`: Single instance using all GPUs (better for large models)
+- **🔄 Dynamic Scaling**: Automatically scales from 1 to N GPUs based on your hardware
+- **🛠️ Dual vLLM Support**: Choose between standard vLLM or GPT-OSS optimized version
+- **📝 Environment-based Configuration**: All settings via simple environment variables
 
-Each vLLM instance runs in its own isolated Python virtual environment for better dependency management and isolation.
+## 🏗️ System Architecture
 
-## Prerequisites
-
-- Docker and Docker Compose installed
-- NVIDIA Docker runtime (for GPU support)
-- At least 2 GPUs (or modify CUDA_VISIBLE_DEVICES for single GPU)
-
-**Note**: This setup uses Python 3.12 for both vLLM instances, installed via the deadsnakes PPA.
-
-## Quick Start
-
-1. Build and start all services:
-```bash
-docker-compose up --build
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Your Client   │───▶│  Nginx (Port 80) │───▶│  Load Balancer  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                                                        │
+                       ┌────────────────────────────────┼────────────────────────────────┐
+                       ▼                                ▼                                ▼
+              ┌─────────────────┐              ┌─────────────────┐              ┌─────────────────┐
+              │ vLLM Instance 1 │              │ vLLM Instance 2 │              │ vLLM Instance N │
+              │   (GPU 0)       │              │   (GPU 1)       │              │   (GPU N-1)     │
+              │   Port 8000     │              │   Port 8001     │              │   Port 800N     │
+              └─────────────────┘              └─────────────────┘              └─────────────────┘
 ```
 
-2. Access the services:
-- Instance 1: `http://localhost/v1/instance1/`
-- Instance 2: `http://localhost/v1/instance2/`
-- Default (Instance 1): `http://localhost/v1/`
-- Health check: `http://localhost/health`
+## 🚀 Quick Start
 
-## Configuration
-
-### Virtual Environments
-
-Each vLLM instance runs in its own virtual environment:
-- Instance 1: `/opt/venv1`
-- Instance 2: `/opt/venv2`
-
-This provides complete isolation between instances, allowing for:
-- Different package versions if needed
-- Independent dependency management
-- Better resource isolation
-
-### Routing Rules
-
-The nginx reverse proxy routes traffic based on URL paths:
-- `/v1/instance1/*` → vLLM Instance 1 (port 8000)
-- `/v1/instance2/*` → vLLM Instance 2 (port 8001)
-- `/v1/*` → vLLM Instance 1 (default)
-
-### Model Configuration
-
-Edit the startup scripts to change models:
-- `scripts/start_vllm_instance1.sh` - Configure instance 1
-- `scripts/start_vllm_instance2.sh` - Configure instance 2
-
-### GPU Assignment
-
-Modify `CUDA_VISIBLE_DEVICES` in `docker-compose.yml`:
-- Instance 1: `CUDA_VISIBLE_DEVICES=0`
-- Instance 2: `CUDA_VISIBLE_DEVICES=1`
-
-For single GPU, use `CUDA_VISIBLE_DEVICES=0` for both.
-
-## Usage Examples
-
-### OpenAI-compatible API calls
-
-Instance 1:
+### 1. Clone and Configure
 ```bash
-curl -X POST "http://localhost/v1/instance1/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "instance1",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
+git clone <repository>
+cd balanced-vllm-docker
+
+# Copy configuration template
+cp .env.example .env
 ```
 
-Instance 2:
+### 2. Edit Configuration
 ```bash
-curl -X POST "http://localhost/v1/instance2/chat/completions" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "instance2",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
+# Edit .env with your desired settings
+nano .env
 ```
 
-## Monitoring
-
-Check service health:
+### 3. Start the System
 ```bash
-# Overall health
+# Build and start all containers
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+```
+
+### 4. Test the Setup
+```bash
+# Test load balancer health
 curl http://localhost/health
 
-# Individual instances
-curl http://localhost:8000/health
-curl http://localhost:8001/health
+# Test model inference
+curl -X POST http://localhost/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model-name", 
+    "prompt": "The capital of France is", 
+    "max_tokens": 50
+  }'
+
+# Check available models
+curl http://localhost/v1/models
 ```
 
-View logs:
+## ⚙️ Configuration Options
+
+### Core Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VLLM_MODEL` | `facebook/opt-125m` | Hugging Face model to serve |
+| `VLLM_MODEL_NAME` | `opt-125m` | Name for the served model (used in API responses) |
+| `VLLM_STRATEGY` | `multi_instance` | Deployment strategy (`multi_instance` or `tensor_parallel`) |
+| `VLLM_INSTALL_TYPE` | `standard` | vLLM installation (`standard` or `gptoss`) |
+
+### Advanced Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VLLM_GPU_COUNT` | auto-detect | Override number of GPUs to use |
+| `VLLM_HOST` | `0.0.0.0` | Host to bind vLLM servers |
+| `VLLM_BASE_PORT` | `8000` | Starting port number |
+| `VLLM_MAX_MODEL_LEN` | `2048` | Maximum sequence length |
+| `VLLM_GPU_MEMORY_UTILIZATION` | `0.80` | GPU memory usage fraction (0.1-0.95) |
+| `HF_TOKEN` | - | Hugging Face token for gated/private models |
+
+## 📋 Configuration Examples
+
+### Basic Setup
+```bash
+# .env
+VLLM_MODEL=microsoft/DialoGPT-medium
+VLLM_MODEL_NAME=dialogue
+VLLM_STRATEGY=multi_instance
+```
+
+### Large Model with Tensor Parallelism
+```bash
+# .env
+VLLM_MODEL=meta-llama/Llama-2-13b-chat-hf
+VLLM_MODEL_NAME=llama-13b
+VLLM_STRATEGY=tensor_parallel
+VLLM_MAX_MODEL_LEN=4096
+VLLM_GPU_MEMORY_UTILIZATION=0.95
+HF_TOKEN=your_hugging_face_token
+```
+
+### GPT-OSS High Performance
+```bash
+# .env
+VLLM_INSTALL_TYPE=gptoss
+VLLM_MODEL=openai/gpt-oss-20b
+VLLM_MODEL_NAME=gpt-oss-20b
+VLLM_STRATEGY=tensor_parallel
+VLLM_MAX_MODEL_LEN=8192
+```
+
+### Development with Limited GPUs
+```bash
+# .env
+VLLM_MODEL=facebook/opt-350m
+VLLM_MODEL_NAME=opt-350m
+VLLM_GPU_COUNT=1
+VLLM_STRATEGY=multi_instance
+```
+
+### Production Multi-GPU Setup
+```bash
+# .env
+VLLM_MODEL=mistralai/Mistral-7B-Instruct-v0.2
+VLLM_MODEL_NAME=mistral-7b
+VLLM_STRATEGY=multi_instance
+VLLM_GPU_MEMORY_UTILIZATION=0.85
+VLLM_MAX_MODEL_LEN=4096
+HF_TOKEN=your_token_here
+```
+
+## 🎯 Deployment Strategies
+
+### Multi-Instance Strategy (`multi_instance`)
+- **Best for**: Multiple concurrent users, fault tolerance
+- **Behavior**: Creates one vLLM instance per GPU
+- **GPU Usage**: Each instance uses one GPU (`CUDA_VISIBLE_DEVICES=N`)
+- **Access Patterns**:
+  - Load balanced: `http://localhost/v1/completions`
+  - Specific instance: `http://localhost/v1/your-model-1/completions`
+
+### Tensor Parallel Strategy (`tensor_parallel`)
+- **Best for**: Large models requiring multiple GPUs
+- **Behavior**: Single vLLM instance using all GPUs with tensor parallelism
+- **GPU Usage**: All GPUs used by single process (`CUDA_VISIBLE_DEVICES=0,1,2,...`)
+- **Access Patterns**: `http://localhost/v1/completions`
+
+## 🔧 vLLM Installation Types
+
+### Standard vLLM (`VLLM_INSTALL_TYPE=standard`)
+- **Default installation** from PyPI
+- **Command**: `python -m vllm.entrypoints.openai.api_server`
+- **Best for**: General use cases, stable releases
+
+### GPT-OSS vLLM (`VLLM_INSTALL_TYPE=gptoss`)
+- **Optimized version** with enhanced performance
+- **Command**: `vllm serve`
+- **Best for**: High-performance deployments, cutting-edge features
+- **Installation**: Uses `uv` package manager with specialized index
+
+## 📊 API Usage Examples
+
+### OpenAI-Compatible Completions
+```bash
+curl -X POST http://localhost/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model",
+    "prompt": "Explain quantum computing in simple terms:",
+    "max_tokens": 100,
+    "temperature": 0.7
+  }'
+```
+
+### Chat Completions
+```bash
+curl -X POST http://localhost/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model",
+    "messages": [
+      {"role": "user", "content": "Hello! How are you?"}
+    ],
+    "max_tokens": 50
+  }'
+```
+
+### Streaming Response
+```bash
+curl -X POST http://localhost/v1/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "your-model",
+    "prompt": "Write a short story about:",
+    "max_tokens": 200,
+    "stream": true
+  }'
+```
+
+## 🔍 Monitoring and Troubleshooting
+
+### View Logs
 ```bash
 # All services
-docker-compose logs
+docker-compose logs -f
 
 # Specific service
-docker-compose logs vllm1
-docker-compose logs vllm2
-docker-compose logs nginx
+docker-compose logs -f vllm
+docker-compose logs -f nginx
 ```
 
-## Customization
-
-### Customizing Virtual Environments
-
-If you need different package versions for each instance:
-
-1. Modify the Dockerfile to install different packages in each venv
-2. Or use the `scripts/setup_venvs.sh` script for manual setup
-3. Update startup scripts to activate the correct venv
-
-Example for different vLLM versions:
-```dockerfile
-# In Dockerfile
-RUN /opt/venv1/bin/pip install vllm==0.2.7
-RUN /opt/venv2/bin/pip install vllm==0.3.0
-```
-
-### Adding More Instances
-
-1. Add a new service in `docker-compose.yml`
-2. Create a new startup script
-3. Update `nginx.conf` with new routing rules
-
-### Load Balancing
-
-Modify `nginx.conf` to implement round-robin or other load balancing strategies between instances.
-
-### HTTPS Support
-
-Add SSL certificates and update nginx configuration for HTTPS support.
-
-## Troubleshooting
-
-1. **GPU Issues**: Ensure NVIDIA Docker runtime is installed
-2. **Memory Issues**: Adjust `--max-model-len` in startup scripts
-3. **Port Conflicts**: Change ports in `docker-compose.yml` if needed
-4. **Model Download**: First run may take time to download models
-5. **Python Version**: Verify Python 3.12 is being used with `scripts/verify_python.sh`
-
-## Stopping Services
-
+### Check GPU Usage
 ```bash
-docker-compose down
+# Real-time GPU monitoring
+watch nvidia-smi
+
+# Inside container
+docker-compose exec vllm nvidia-smi
 ```
 
-To remove volumes as well:
+### Health Checks
 ```bash
-docker-compose down -v
+# System health
+curl http://localhost/health
+
+# Available models
+curl http://localhost/v1/models
+
+# Container status
+docker-compose ps
 ```
 
-## Dynamic Server Enabling/Disabling
+### Debug GPU Detection
+```bash
+# Run GPU detection manually
+docker-compose exec vllm python -c "
+import subprocess
+result = subprocess.run(['nvidia-smi', '--list-gpus'], capture_output=True, text=True)
+print('GPUs found:', len([l for l in result.stdout.strip().split('\\n') if l]))
+print(result.stdout)
+"
+```
 
-### Overview
-The Nginx configuration allows dynamic enabling or disabling of backend servers using variables. This is achieved through the `map` directive in the `nginx.conf` file.
+## 🛠️ Building with Different vLLM Versions
 
-### Configuration Details
+### Standard vLLM Build
+```bash
+docker-compose build
+# or explicitly
+VLLM_INSTALL_TYPE=standard docker-compose build
+```
 
-1. **Variable Definition**:
-   The `$enable_vllm2` variable is used to control which backend server is active. It is defined in the `map` block:
-   ```nginx
-   map $enable_vllm2 $vllm_backend {
-       default vllm1:8000;
-       1       vllm2:8001;
-   }
-   ```
+### GPT-OSS vLLM Build
+```bash
+VLLM_INSTALL_TYPE=gptoss docker-compose build
+```
 
-2. **Dynamic Behavior**:
-   - When `$enable_vllm2` is set to `1`, requests to `/v1/` are routed to `vllm2` (port 8001).
-   - By default, requests are routed to `vllm1` (port 8000).
+### Force Rebuild
+```bash
+docker-compose build --no-cache
+```
 
-3. **Setting the Variable**:
-   - The variable can be set in the Nginx configuration using the `set` directive:
-     ```nginx
-     set $enable_vllm2 1;
-     ```
-   - Alternatively, it can be passed as an environment variable when running the Nginx container:
-     ```bash
-     docker run -e enable_vllm2=1 nginx
-     ```
+## 🔒 Authentication for Private Models
 
-4. **Example Use Case**:
-   - Enable `vllm2` for specific conditions, such as maintenance or testing.
-   - Use the `if` directive to dynamically set the variable based on request headers or other conditions:
-     ```nginx
-     if ($http_x_enable_vllm2 = "true") {
-         set $enable_vllm2 1;
-     }
-     ```
+### Using Hugging Face Token
+```bash
+# 1. Get token from https://huggingface.co/settings/tokens
+# 2. Add to .env
+echo "HF_TOKEN=hf_your_token_here" >> .env
 
-### Testing the Configuration
+# 3. Use gated model
+echo "VLLM_MODEL=meta-llama/Llama-2-7b-chat-hf" >> .env
+```
 
-1. Start the services:
-   ```bash
-   docker-compose up --build
-   ```
+### Login Alternative (for development)
+```bash
+# Inside container
+docker-compose exec vllm huggingface-cli login
+```
 
-2. Test routing:
-   - Default behavior (routes to `vllm1`):
-     ```bash
-     curl http://localhost/v1/
-     ```
-   - Enable `vllm2` and test:
-     ```bash
-     docker exec -it <nginx-container-id> bash
-     echo "set $enable_vllm2 1;" >> /etc/nginx/nginx.conf
-     nginx -s reload
-     curl http://localhost/v1/
-     ```
+## 🚀 Performance Tuning
 
-3. Verify logs to confirm routing:
-   ```bash
-   docker-compose logs nginx
-   ```
+### Memory Optimization
+```bash
+# .env
+VLLM_GPU_MEMORY_UTILIZATION=0.95  # Use more GPU memory
+VLLM_MAX_MODEL_LEN=8192          # Longer sequences
+```
+
+### Multi-GPU Scaling
+```bash
+# Force use specific number of GPUs
+VLLM_GPU_COUNT=4
+VLLM_STRATEGY=multi_instance
+```
+
+### Load Balancing Tuning
+The nginx configuration automatically optimizes for:
+- Round-robin load balancing
+- Connection keep-alive
+- Proper timeouts for long-running inference
+- Health checks and automatic failover
+
+## 🔄 Scaling Examples
+
+### 2 GPUs (Your Current Setup)
+```bash
+# Automatic detection creates:
+# - Instance 1: GPU 0, Port 8000
+# - Instance 2: GPU 1, Port 8001
+# - Load balancer distributes between both
+```
+
+### 4 GPUs
+```bash
+VLLM_GPU_COUNT=4  # or auto-detected
+VLLM_STRATEGY=multi_instance
+
+# Creates:
+# - Instance 1: GPU 0, Port 8000
+# - Instance 2: GPU 1, Port 8001
+# - Instance 3: GPU 2, Port 8002
+# - Instance 4: GPU 3, Port 8003
+```
+
+### 8 GPUs with Large Model
+```bash
+VLLM_GPU_COUNT=8
+VLLM_STRATEGY=tensor_parallel
+VLLM_MODEL=meta-llama/Llama-2-70b-chat-hf
+
+# Creates:
+# - Single instance using all 8 GPUs
+# - Tensor parallelism across GPUs
+# - Single endpoint with massive model capacity
+```
+
+## 🆘 Common Issues and Solutions
+
+### Container Startup Issues
+```bash
+# Check if GPUs are available
+nvidia-smi
+
+# Verify Docker has GPU access
+docker run --rm --gpus all nvidia/cuda:11.8-base-ubuntu20.04 nvidia-smi
+```
+
+### Model Loading Errors
+```bash
+# Check if model exists and you have access
+# For private models, ensure HF_TOKEN is set
+# Check model compatibility with vLLM
+```
+
+### Port Conflicts
+```bash
+# Change base port if 8000-8010 are busy
+VLLM_BASE_PORT=9000
+```
+
+### Memory Issues
+```bash
+# Reduce GPU memory usage
+VLLM_GPU_MEMORY_UTILIZATION=0.7
+
+# Reduce model context length
+VLLM_MAX_MODEL_LEN=1024
+```
+
+## 📖 API Documentation
+
+The system provides a fully OpenAI-compatible API. Access the interactive documentation at:
+- **Swagger UI**: `http://localhost/docs` (when available)
+- **OpenAPI spec**: `http://localhost/openapi.json`
+
+### Supported Endpoints
+- `GET /v1/models` - List available models
+- `POST /v1/completions` - Text completion
+- `POST /v1/chat/completions` - Chat completion
+- `GET /health` - Health check
+
+### Load Balancing Behavior
+- **Default route** (`/v1/*`): Round-robin across all instances
+- **Instance-specific** (`/v1/model-name-1/*`): Direct to specific instance
+- **Health monitoring**: Automatic failover if instance becomes unhealthy
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test with different GPU configurations
+5. Submit a pull request
+
+## 📄 License
+
+[Your License Here]
+
+## 🙏 Acknowledgments
+
+- [vLLM Team](https://github.com/vllm-project/vllm) for the excellent inference engine
+- [NVIDIA](https://developer.nvidia.com/) for CUDA and container runtime
+- [Hugging Face](https://huggingface.co/) for model hosting and transformers
