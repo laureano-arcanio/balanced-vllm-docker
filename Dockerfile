@@ -59,8 +59,11 @@ RUN /opt/pyenv/versions/3.12.0/bin/python3 -m pip install --upgrade pip
 # Install uv first using pyenv python
 RUN /opt/pyenv/versions/3.12.0/bin/pip install uv
 
-# Create virtual environment using uv
-RUN /opt/pyenv/versions/3.12.0/bin/uv venv /opt/venv --python /opt/pyenv/versions/3.12.0/bin/python3
+# Create virtual environment using uv with pip seeded
+RUN /opt/pyenv/versions/3.12.0/bin/uv venv /opt/venv --python /opt/pyenv/versions/3.12.0/bin/python3 --seed
+
+# Install uv in the virtual environment
+RUN /opt/venv/bin/pip install uv
 
 # Install PyTorch with CUDA support using uv (vLLM likes this)
 RUN /opt/venv/bin/uv pip install --no-cache-dir \
@@ -68,7 +71,6 @@ RUN /opt/venv/bin/uv pip install --no-cache-dir \
     torch --index-url https://download.pytorch.org/whl/cu124
 
 # Install vLLM and related dependencies 
-ARG VLLM_INSTALL_TYPE=standard
 RUN if [ "$VLLM_INSTALL_TYPE" = "gptoss" ]; then \
         echo "Installing GPT-OSS vLLM..." && \
         /opt/venv/bin/uv pip install --no-cache-dir --pre \

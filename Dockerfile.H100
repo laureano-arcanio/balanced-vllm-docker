@@ -53,8 +53,11 @@ RUN /opt/pyenv/versions/3.12.0/bin/python3 -m pip install --upgrade pip
 # Install uv first using pyenv python
 RUN /opt/pyenv/versions/3.12.0/bin/pip install uv
 
-# Create virtual environment using uv
-RUN /opt/pyenv/versions/3.12.0/bin/uv venv /opt/venv --python /opt/pyenv/versions/3.12.0/bin/python3
+# Create virtual environment using uv with pip seeded
+RUN /opt/pyenv/versions/3.12.0/bin/uv venv /opt/venv --python /opt/pyenv/versions/3.12.0/bin/python3 --seed
+
+# Install uv in the virtual environment
+RUN /opt/venv/bin/pip install uv
 
 # Install PyTorch with CUDA support
 RUN /opt/venv/bin/uv pip install \

@@ -5,11 +5,10 @@ Automatically configures vLLM based on available GPUs and environment variables
 """
 import os
 import sys
-import json
 import subprocess
 import time
 import signal
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 class VLLMLauncher:
     def __init__(self):
@@ -32,7 +31,7 @@ class VLLMLauncher:
         if self.gpu_count_override:
             self.gpu_count_override = int(self.gpu_count_override)
         
-        print(f"Configuration loaded:")
+        print("Configuration loaded:")
         print(f"  Model: {self.model}")
         print(f"  Model Name: {self.model_name}")
         print(f"  Strategy: {self.strategy}")
@@ -83,7 +82,6 @@ class VLLMLauncher:
         for i, gpu in enumerate(self.gpus):
             port = self.base_port + i
             gpu_id = gpu['index']
-            instance_name = f"{self.model_name}-{i+1}"
             
             # Choose the appropriate vLLM command based on install type
             if self.vllm_install_type == 'gptoss':
@@ -93,7 +91,7 @@ class VLLMLauncher:
                     self.model,
                     '--host', self.host,
                     '--port', str(port),
-                    '--served-model-name', instance_name,
+                    '--served-model-name', self.model_name,
                     '--max-model-len', str(self.max_model_len),
                     '--gpu-memory-utilization', str(self.gpu_memory_utilization),
                     '--tensor-parallel-size', '1'
@@ -105,7 +103,7 @@ class VLLMLauncher:
                 '--model', self.model,
                 '--host', self.host,
                 '--port', str(port),
-                '--served-model-name', instance_name,
+                '--served-model-name', self.model_name,
                     '--max-model-len', str(self.max_model_len),
                     '--gpu-memory-utilization', str(self.gpu_memory_utilization),
                     '--tensor-parallel-size', '1'
@@ -115,7 +113,7 @@ class VLLMLauncher:
             env['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
             
             print(f"  Starting instance {i+1} on GPU {gpu_id}, port {port}")
-            print(f"    Model: {instance_name}")
+            print(f"    Model: {self.model_name}")
             print(f"    Command: {' '.join(cmd)}")
             
             process = subprocess.Popen(cmd, env=env)
@@ -123,7 +121,7 @@ class VLLMLauncher:
                 'process': process,
                 'gpu_id': gpu_id,
                 'port': port,
-                'instance_name': instance_name
+                'instance_name': f"{self.model_name}-{i+1}"
             })
             
             # Small delay between starts
@@ -189,99 +187,92 @@ class VLLMLauncher:
                 instance_name = proc_info['instance_name']
                 
                 # Individual instance upstream
-                upstreams.append(f"""upstream {instance_name} {{
-    server vllm:{port};
-}}""")
+                upstreams.append(f"""upstream {instance_name} {{server vllm:{port};}}""")
                 
                 # Individual instance location
-                locations.append(f"""    # Route to {instance_name}
-    location /v1/{instance_name}/ {{
-        rewrite ^/v1/{instance_name}/(.*) /v1/$1 break;
-        proxy_pass http://{instance_name};
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-        proxy_connect_timeout 75s;
-    }}""")
+                locations.append(f"""
+                    # Route to {instance_name}
+                    location /v1/{instance_name}/ {{
+                        rewrite ^/v1/{instance_name}/(.*) /v1/$1 break;
+                        proxy_pass http://{instance_name};
+                        proxy_set_header Host $host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                        proxy_set_header X-Forwarded-Proto $scheme;
+                        proxy_read_timeout 300s;
+                        proxy_connect_timeout 75s;
+                    }}""")
                 
-                backends.append(f"        server vllm:{port};")
+                backends.append(f"server vllm:{port};")
             
             # Load balancer upstream with least_conn for better load balancing
-            upstreams.append(f"""upstream vllm_backends {{
-    least_conn;
-{chr(10).join(backends)}
-}}""")
+            upstreams.append(f"""upstream vllm_backends {{least_conn;{chr(10).join(backends)}}}""")
             
-            # Load balancer location
-            locations.append("""    # Load balancing for /v1/ path
-    location /v1/ {
-        proxy_pass http://vllm_backends;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-        proxy_connect_timeout 75s;
-    }""")
+            # Load balancing for /v1/ path
+            locations.append("""
+                location /v1/ {
+                    proxy_pass http://vllm_backends;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_read_timeout 300s;
+                    proxy_connect_timeout 75s;
+                }""")
             
         else:  # tensor_parallel
             port = self.base_port
-            upstreams = [f"""upstream vllm_backends {{
-    server vllm:{port};
-}}"""]
+            upstreams = [f"""upstream vllm_backends {{server vllm:{port};}}"""]
             
-            locations = [f"""    # Single instance with tensor parallelism
-    location /v1/ {{
-        proxy_pass http://vllm_backends;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-        proxy_connect_timeout 75s;
-    }}"""]
-        
-        nginx_config = f"""events {{
-    worker_connections 1024;
-}}
+            locations = ["""
+                # Single instance with tensor parallelism
+                location /v1/ {{
+                    proxy_pass http://vllm_backends;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_read_timeout 300s;
+                    proxy_connect_timeout 75s;
+                }}"""]
+                    
+        nginx_config = f"""
+            events {{worker_connections 1024;}}
+            http {{
+            {chr(10).join(upstreams)}
 
-http {{
-{chr(10).join(upstreams)}
+                server {{
+                    listen 80;
+                    server_name vllm;
 
-    server {{
-        listen 80;
-        server_name vllm;
+            {chr(10).join(locations)}
 
-{chr(10).join(locations)}
+                    # Health check endpoint
+                    location /health {{
+                        access_log off;
+                        return 200 "healthy\\n";
+                        add_header Content-Type text/plain;
+                    }}
 
-        # Health check endpoint
-        location /health {{
-            access_log off;
-            return 200 "healthy\\n";
-            add_header Content-Type text/plain;
-        }}
-
-        # Default route
-        location / {{
-            proxy_pass http://vllm_backends;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_read_timeout 300s;
-            proxy_connect_timeout 75s;
-        }}
-    }}
-}}"""
+                    # Default route
+                    location / {{
+                        proxy_pass http://vllm_backends;
+                        proxy_set_header Host $host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                        proxy_set_header X-Forwarded-Proto $scheme;
+                        proxy_read_timeout 300s;
+                        proxy_connect_timeout 75s;
+                    }}
+                }}
+            }}"""
         
         # Write the config to shared volume (nginx.conf in the shared directory)
         nginx_config_path = '/tmp/nginx.conf'
         with open(nginx_config_path, 'w') as f:
             f.write(nginx_config)
         
-        print(f"\\nGenerated nginx configuration at /tmp/nginx.conf")
+        print("\\nGenerated nginx configuration at /tmp/nginx.conf")
         print("Instance summary:")
         for proc_info in self.processes:
             print(f"  - {proc_info['instance_name']}: GPU {proc_info['gpu_id']}, port {proc_info['port']}")
