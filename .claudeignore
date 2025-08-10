@@ -1,0 +1,83 @@
+# Security - Never read or modify these files
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+private/
+
+# Sensitive configuration
+docker-compose.override.yml
+.dockerignore
+
+# Cache and temporary files
+node_modules/
+.cache/
+.tmp/
+*.log
+*.pid
+
+# Model cache (large binary files)
+models/hub/
+*.safetensors
+*.bin
+*.onnx
+*.pt
+*.pth
+
+# GPU cache
+.nv/
+.nvidia/
+
+# Build artifacts
+build/
+dist/
+target/
+*.so
+*.dll
+*.exe
+
+# IDE and editor files
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Version control
+.git/objects/
+.git/logs/
+
+# Jupyter notebooks with outputs
+*.ipynb_checkpoints/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.backup
+*.bak
+backup/
+
+# Large data files
+data/
+datasets/
+*.csv
+*.json.gz
+*.parquet
+
+# Docker volumes
+volumes/
+
+# Logs
+logs/
+*.log.*
